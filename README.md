@@ -1,9 +1,5 @@
 # TP7 DPBO — Sistem Manajemen Peminjaman Alat Laboratorium Komputer (LabGear)
 
-Aplikasi web berbasis **PHP Native (OOP)** dengan **PDO Prepared Statement** untuk mengelola inventaris kategori alat, perangkat laboratorium, data peminjam, serta transaksi peminjaman dan pengembalian alat laboratorium secara real-time dan konsisten terhadap stok.
-
----
-
 ## Janji
 
 > Saya **Muhammad Fadey Rafif** dengan NIM **2504792** mengerjakan Tugas Praktikum 7 dalam mata kuliah Desain dan Pemrograman Berorientasi Objek untuk keberkahanNya maka saya tidak melakukan kecurangan seperti yang telah dispesifikasikan. Aamiin.
@@ -51,11 +47,9 @@ TP7DPBO2526C1/
 │   └── style.css              # Styling halaman responsif untuk form, tabel, badge, dan alert
 ├── database/
 │   └── db_lab_gear.sql        # Struktur DDL 4 tabel (InnoDB, utf8mb4, FK) + data awal yang konsisten
-├── docs/                      # Tempat menyimpan file screen record / screenshot dokumentasi
 └── README.md                  # Dokumentasi lengkap proyek
 ```
 
----
 
 ## Database
 
@@ -250,48 +244,63 @@ classDiagram
 
 ---
 
-### Sequence Diagram
+## Skenario Pengujian (Test Case)
 
-```mermaid
-sequenceDiagram
-    actor User as User (Browser)
-    participant Index as index.php
-    participant View as view/borrowings.php
-    participant Borrowing as class/Borrowing.php
-    participant Equipment as class/Equipment.php
-    participant PDO as PDO (Database)
+Berikut adalah daftar skenario pengujian (*test case*) CRUD, validasi input, proteksi *foreign key*, serta sinkronisasi stok transaksional pada seluruh tabel:
 
-    User->>Index: Akses halaman / Submit Form POST (index.php?page=borrowings)
-    Index->>Index: Validasi whitelist halaman & Inisialisasi PDO + Repository
-    Index->>View: require view/borrowings.php
+### 1. Tabel Kategori Alat (`index.php?page=categories`)
 
-    alt Request adalah POST (Contoh: Catat Peminjaman Baru)
-        View->>Borrowing: create($_POST)
-        Borrowing->>Borrowing: filterPayload($_POST) (Whitelist & Validasi)
-        Borrowing->>PDO: beginTransaction()
-        Borrowing->>Equipment: findByIdForUpdate(equipment_id)
-        Equipment->>PDO: prepare("SELECT ... FOR UPDATE") & execute()
-        PDO-->>Equipment: Data baris alat terkunci
-        Equipment-->>Borrowing: Data alat & stok saat ini
-        Borrowing->>Equipment: adjustStock(equipment_id, -quantity)
-        Equipment->>PDO: prepare("UPDATE equipments SET stock = ...") & execute()
-        Borrowing->>PDO: prepare("INSERT INTO borrowings ...") & execute()
-        Borrowing->>PDO: commit()
-        Borrowing-->>View: ID Peminjaman Baru
-        View->>View: setFlash('success', ...) & redirectToPage('borrowings')
-        View-->>User: HTTP 302 Redirect ke index.php?page=borrowings (Pola PRG)
-    end
+| Kode | Skenario Uji | Langkah & Data Input | Hasil yang Diharapkan (Expected Result) |
+| :--- | :--- | :--- | :--- |
+| **TC-CAT-01** | **Create** (Tambah Kategori Baru) | Isi form:<br>- Kode Kategori: `CAT-AUD`<br>- Nama Kategori: `Perangkat Audio & Podcast`<br>- Lokasi Ruang Lab: `Lab Multimedia Lantai 1`<br>- Deskripsi: `Mikrofon kondensor, audio interface, dan headphone studio.`<br>Klik **Tambah Kategori**. | Muncul pesan sukses *"Kategori alat laboratorium berhasil ditambahkan."* Data `CAT-AUD` tampil di tabel dengan jumlah jenis alat `0 alat`. |
+| **TC-CAT-02** | **Validasi Duplikat Kode** | Tambah kategori baru dengan Kode Kategori yang sudah ada (`CAT-AUD`). | Ditolak dengan pesan error ramah: *"Data dengan kode, nomor identitas, atau email tersebut sudah terdaftar (duplikat)."* |
+| **TC-CAT-03** | **Update** (Edit Kategori) | Klik **Edit** pada `CAT-AUD`, ubah Lokasi Ruang Lab menjadi `Studio Rekaman Lantai 2`, lalu klik **Simpan Perubahan**. | Muncul pesan sukses *"Data kategori alat berhasil diperbarui."* Kolom Ruang Lab pada tabel berubah menjadi `Studio Rekaman Lantai 2`. |
+| **TC-CAT-04** | **Delete (Proteksi Foreign Key)** | Klik **Hapus** pada kategori `CAT-IOT` (yang masih direferensikan oleh data alat di tabel `equipments`). | Penghapusan ditolak oleh constraint `ON DELETE RESTRICT` dengan pesan ramah: *"Data ini tidak dapat dihapus karena masih digunakan sebagai referensi pada tabel lain."* |
+| **TC-CAT-05** | **Delete (Berhasil)** | Klik **Hapus** pada kategori `CAT-AUD` (yang belum memiliki alat), lalu konfirmasi OK. | Muncul pesan sukses *"Kategori alat berhasil dihapus."* Baris `CAT-AUD` terhapus dari tabel. |
 
-    User->>Index: GET index.php?page=borrowings
-    Index->>View: require view/borrowings.php
-    View->>Borrowing: findAll()
-    Borrowing->>PDO: prepare("SELECT ... INNER JOIN ...") & execute()
-    PDO-->>Borrowing: Array data peminjaman + nama alat + nama peminjam
-    Borrowing-->>View: Return list transaksi
-    View-->>User: Render tabel HTML (escaped dengan htmlspecialchars)
-```
+### 2. Tabel Alat Laboratorium (`index.php?page=equipments`)
+
+| Kode | Skenario Uji | Langkah & Data Input | Hasil yang Diharapkan (Expected Result) |
+| :--- | :--- | :--- | :--- |
+| **TC-EQP-01** | **Create** (Tambah Alat Baru) | Isi form:<br>- Kategori Alat: `CAT-NET - Perangkat Jaringan Komputer`<br>- Kode Inventaris: `INV-NET-002`<br>- Nama Alat: `Switch Catalyst 2960-24TT`<br>- Merek: `Cisco`<br>- Stok Tersedia: `6`<br>- Kondisi Alat: `Baik`<br>Klik **Tambah Alat Lab**. | Muncul pesan sukses *"Data alat laboratorium berhasil ditambahkan."* Alat `INV-NET-002` tampil di tabel lengkap dengan nama kategori & ruang lab hasil `INNER JOIN` serta stok `6 unit`. |
+| **TC-EQP-02** | **Update** (Edit Alat Lab) | Klik **Edit** pada `INV-NET-002`, ubah Stok Tersedia menjadi `5` dan Kondisi Alat menjadi `Perlu Kalibrasi`, lalu klik **Simpan Perubahan**. | Muncul pesan sukses *"Data alat laboratorium berhasil diperbarui."* Stok pada tabel berubah menjadi `5 unit` dan kondisi menjadi `Perlu Kalibrasi`. |
+| **TC-EQP-03** | **Delete (Proteksi Foreign Key)** | Klik **Hapus** pada alat `ESP32-S3 DevKitC Dual USB` (`INV-IOT-001`) yang memiliki riwayat di tabel `borrowings`. | Penghapusan ditolak dengan pesan: *"Data ini tidak dapat dihapus karena masih digunakan sebagai referensi pada tabel lain."* |
+| **TC-EQP-04** | **Delete (Berhasil)** | Klik **Hapus** pada alat `LIDAR 360 Laser Range Scanner A1M8` (`INV-RBT-001`) yang belum memiliki riwayat peminjaman. | Muncul pesan sukses *"Data alat laboratorium berhasil dihapus."* Baris `INV-RBT-001` hilang dari tabel. |
+
+### 3. Tabel Data Peminjam (`index.php?page=borrowers`)
+
+| Kode | Skenario Uji | Langkah & Data Input | Hasil yang Diharapkan (Expected Result) |
+| :--- | :--- | :--- | :--- |
+| **TC-BRW-01** | **Create** (Tambah Peminjam Baru) | Isi form:<br>- NIM / NIP: `2401999`<br>- Nama Lengkap: `Alya Putri Ramadhani`<br>- Program Studi: `Ilmu Komputer`<br>- Alamat Email: `alya.putri@example.edu`<br>- Nomor Telepon: `081399887766`<br>Klik **Tambah Peminjam**. | Muncul pesan sukses *"Data peminjam berhasil ditambahkan."* Data `Alya Putri Ramadhani` tampil di tabel dengan indikator `0 aktif`. |
+| **TC-BRW-02** | **Update** (Edit Peminjam) | Klik **Edit** pada `Alya Putri Ramadhani`, ubah Nomor Telepon menjadi `081300001111`, lalu klik **Simpan Perubahan**. | Muncul pesan sukses *"Data peminjam berhasil diperbarui."* Nomor telepon di kolom Kontak berubah menjadi `081300001111`. |
+| **TC-BRW-03** | **Delete (Proteksi Foreign Key)** | Klik **Hapus** pada `Raka Pratama Wijaya` (`2301041`) yang masih tercatat di tabel `borrowings`. | Penghapusan ditolak dengan pesan: *"Data ini tidak dapat dihapus karena masih digunakan sebagai referensi pada tabel lain."* |
+| **TC-BRW-04** | **Delete (Berhasil)** | Tambahkan 1 data peminjam baru tanpa transaksi, lalu klik **Hapus** pada baris tersebut. | Muncul pesan sukses *"Data peminjam berhasil dihapus."* Baris peminjam terhapus dari tabel. |
+
+### 4. Tabel Transaksi Peminjaman & Sinkronisasi Stok (`index.php?page=borrowings`)
+
+| Kode | Skenario Uji | Langkah & Data Input | Hasil yang Diharapkan (Expected Result) |
+| :--- | :--- | :--- | :--- |
+| **TC-TRX-01** | **Validasi Stok Tidak Mencukupi** | Isi form:<br>- Alat Lab: `[INV-NET-002] Switch Catalyst 2960-24TT (Stok: 5)`<br>- Peminjam: `2401999 - Alya Putri Ramadhani`<br>- Jumlah Unit: `10`<br>- Keperluan: `Uji Validasi Stok`<br>Klik **Catat Peminjaman**. | Transaksi dibatalkan (`rollBack`) dan muncul pesan error: *"Stok alat "Switch Catalyst 2960-24TT" tidak mencukupi (tersedia: 5, diminta: 10)."* Stok alat tetap `5`. |
+| **TC-TRX-02** | **Create Peminjaman (Stok Berkurang Otomatis)** | Isi form:<br>- Alat Lab: `[INV-NET-002] Switch Catalyst 2960-24TT (Stok: 5)`<br>- Peminjam: `2401999 - Alya Putri Ramadhani`<br>- Jumlah Unit: `2`<br>- Status: `Dipinjam (Kurangi Stok)`<br>- Keperluan: `Praktikum VLAN Kelompok 1`<br>Klik **Catat Peminjaman**. | Muncul pesan sukses *"Transaksi peminjaman alat berhasil dicatat dan stok telah diperbarui."* Stok `Switch Catalyst 2960-24TT` otomatis berkurang dari `5` menjadi `3`, dan pinjaman aktif Alya menjadi `1 aktif`. |
+| **TC-TRX-03** | **Update Peminjaman (Penyesuaian Selisih Stok)** | Klik **Edit** pada transaksi peminjaman Alya, ubah Jumlah Unit Dipinjam dari `2` menjadi `3`, lalu klik **Simpan Perubahan**. | Muncul pesan sukses *"Data transaksi peminjaman dan stok berhasil diperbarui."* Stok `Switch Catalyst 2960-24TT` otomatis disesuaikan menjadi `2 unit` (`5 - 3 = 2`). |
+| **TC-TRX-04** | **Kembalikan Alat (Stok Pulih Otomatis)** | Klik tombol hijau **Kembalikan** pada baris transaksi peminjaman Alya, lalu konfirmasi OK. | Muncul pesan sukses *"Alat laboratorium telah dikembalikan dan stok berhasil ditambahkan kembali."* Status transaksi berubah menjadi `Dikembalikan`, Tanggal Kembali terisi tanggal hari ini, dan stok alat kembali menjadi `5 unit`. |
+| **TC-TRX-05** | **Delete Transaksi Peminjaman** | Klik **Hapus** pada baris transaksi peminjaman, lalu konfirmasi OK. | Muncul pesan sukses *"Data transaksi peminjaman berhasil dihapus."* (Apabila transaksi yang dihapus masih berstatus `Dipinjam`, stok alat terkait otomatis dikembalikan ke tabel `equipments`). |
+
+---
 
 ## Dokumentasi
 
-> **TODO**: Letakkan file video screen record atau gif demonstrasi aplikasi di dalam folder `docs/` (misalnya `docs/demo.mp4` atau `docs/demo.gif`), lalu tautkan di bawah ini sebelum dikumpulkan.
+Berikut adalah video *screen record* demonstrasi penggunaan aplikasi **LabGear** (pengujian CRUD pada seluruh tabel, validasi duplikat, proteksi *foreign key*, serta sinkronisasi stok transaksional):
 
+- **Link YouTube**: [Tonton Video Demonstrasi TP7 DPBO — LabGear Management System](https://youtu.be/zpBcEOUWWag)
+
+[![Video Demonstrasi LabGear TP7 DPBO](https://img.youtube.com/vi/zpBcEOUWWag/maxresdefault.jpg)](https://youtu.be/zpBcEOUWWag)
+
+- [x] **Checklist Screen Record Pengujian CRUD Semua Tabel**:
+  - [x] **Tabel Kategori Alat (`?page=categories`)**: Tambah kategori baru, tampilkan di tabel, validasi duplikat, edit kategori, dan hapus kategori (termasuk demonstrasi proteksi gagal hapus jika kategori masih dipakai oleh alat).
+  - [x] **Tabel Alat Lab (`?page=equipments`)**: Tambah alat baru dengan memilih kategori dari dropdown, edit data/kondisi alat, dan hapus alat yang belum memiliki riwayat peminjaman.
+  - [x] **Tabel Data Peminjam (`?page=borrowers`)**: Tambah peminjam baru, edit informasi peminjam, dan hapus peminjam.
+  - [x] **Tabel Peminjaman (`?page=borrowings`)**:
+    - [x] Tambah transaksi peminjaman baru dan perlihatkan stok alat berkurang sesuai jumlah pinjam.
+    - [x] Klik tombol **Kembalikan** pada peminjaman aktif dan perlihatkan status berubah menjadi `Dikembalikan` serta stok alat bertambah kembali.
+    - [x] Edit transaksi peminjaman dan hapus transaksi peminjaman.
