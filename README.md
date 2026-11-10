@@ -1,8 +1,13 @@
 # TP7 DPBO — Sistem Manajemen Peminjaman Alat Laboratorium Komputer (LabGear)
 
+Aplikasi web berbasis **PHP Native (OOP)** dengan **PDO Prepared Statement** untuk mengelola inventaris kategori alat, perangkat laboratorium, data peminjam, serta transaksi peminjaman dan pengembalian alat laboratorium secara real-time dan konsisten terhadap stok.
+
+---
+
 ## Janji
 
 > Saya **Muhammad Fadey Rafif** dengan NIM **2504792** mengerjakan Tugas Praktikum 7 dalam mata kuliah Desain dan Pemrograman Berorientasi Objek untuk keberkahanNya maka saya tidak melakukan kecurangan seperti yang telah dispesifikasikan. Aamiin.
+
 ---
 
 ## Tema Website & Daftar Fitur Utama
@@ -244,6 +249,93 @@ classDiagram
 
 ---
 
+## Alur Kode (Flow Aplikasi)
+
+Alur eksekusi aplikasi mengikuti standar:
+**Browser → `index.php` → `view` → (aksi POST) → `class` → `PDO` → `database` → hasil kembali ke `view`**
+
+### Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    actor User as User (Browser)
+    participant Index as index.php
+    participant View as view/borrowings.php
+    participant Borrowing as class/Borrowing.php
+    participant Equipment as class/Equipment.php
+    participant PDO as PDO (Database)
+
+    User->>Index: Akses halaman / Submit Form POST (index.php?page=borrowings)
+    Index->>Index: Validasi whitelist halaman & Inisialisasi PDO + Repository
+    Index->>View: require view/borrowings.php
+
+    alt Request adalah POST (Contoh: Catat Peminjaman Baru)
+        View->>Borrowing: create($_POST)
+        Borrowing->>Borrowing: filterPayload($_POST) (Whitelist & Validasi)
+        Borrowing->>PDO: beginTransaction()
+        Borrowing->>Equipment: findByIdForUpdate(equipment_id)
+        Equipment->>PDO: prepare("SELECT ... FOR UPDATE") & execute()
+        PDO-->>Equipment: Data baris alat terkunci
+        Equipment-->>Borrowing: Data alat & stok saat ini
+        Borrowing->>Equipment: adjustStock(equipment_id, -quantity)
+        Equipment->>PDO: prepare("UPDATE equipments SET stock = ...") & execute()
+        Borrowing->>PDO: prepare("INSERT INTO borrowings ...") & execute()
+        Borrowing->>PDO: commit()
+        Borrowing-->>View: ID Peminjaman Baru
+        View->>View: setFlash('success', ...) & redirectToPage('borrowings')
+        View-->>User: HTTP 302 Redirect ke index.php?page=borrowings (Pola PRG)
+    end
+
+    User->>Index: GET index.php?page=borrowings
+    Index->>View: require view/borrowings.php
+    View->>Borrowing: findAll()
+    Borrowing->>PDO: prepare("SELECT ... INNER JOIN ...") & execute()
+    PDO-->>Borrowing: Array data peminjaman + nama alat + nama peminjam
+    Borrowing-->>View: Return list transaksi
+    View-->>User: Render tabel HTML (escaped dengan htmlspecialchars)
+```
+
+### Penjelasan Langkah demi Langkah & Aturan Logika Khusus
+
+1. **Inisialisasi & Routing (`index.php` & `config/bootstrap.php`)**:
+   - Setiap request masuk melalui `index.php`.
+   - `bootstrap.php` memulai session, memuat helper, dan mendaftarkan autoloader (`spl_autoload_register`) untuk folder `class/`.
+   - Parameter `$_GET['page']` dicek terhadap array `$allowedPages` (whitelist). Jika tidak terdaftar, otomatis diarahkan ke halaman default `borrowings`.
+2. **Penanganan Aksi POST dengan Pola PRG (Post/Redirect/Get)**:
+   - Saat user men-submit form (Tambah, Edit, Kembalikan, atau Hapus), file `view` memanggil method pada objek class repository terkait.
+   - Hasil eksekusi (sukses maupun pesan error yang sudah diterjemahkan lewat `translateException()`) disimpan ke session flash message (`setFlash()`), lalu browser di-redirect (`header('Location: ...')`) kembali ke halaman GET agar tidak terjadi duplikasi submit ketika halaman di-refresh.
+3. **Aturan Logika Khusus Transaksi & Stok (`Borrowing` & `Equipment`)**:
+   - Seluruh operasi `create`, `update`, `returnEquipment`, dan `delete` pada `Borrowing` dibungkus dalam `PDO::beginTransaction()`.
+   - Sebelum memeriksa dan mengubah stok, baris alat pada tabel `equipments` dikunci menggunakan `SELECT ... FOR UPDATE` (`findByIdForUpdate()`).
+   - Jika stok alat kurang dari jumlah yang dipinjam, transaksi langsung dibatalkan (`rollBack()`) dan sistem menampilkan pesan ramah bahwa stok tidak mencukupi.
+   - Saat peminjaman diedit (misal mengganti alat, mengubah jumlah unit, atau mengubah status dari `Dipinjam` ke `Dikembalikan` atau sebaliknya), stok lama dipulihkan terlebih dahulu lalu stok baru disesuaikan secara atomik.
+   - Jika transaksi peminjaman yang masih berstatus `Dipinjam` dihapus, stok alat akan dikembalikan secara otomatis sebelum baris transaksi dihapus.
+
+---
+
+## Cara Menjalankan
+
+1. **Kebutuhan Sistem**:
+   - PHP >= 8.1 (dengan ekstensi `pdo_mysql` aktif) dan MySQL/MariaDB (Laragon / XAMPP).
+   - Web Browser (Chrome / Edge / Firefox).
+2. **Salin Folder Project**:
+   - Pindahkan folder `TP7DPBO2526C1` ke dalam direktori `C:\laragon\www\` (Laragon) atau `C:\xampp\htdocs\` (XAMPP).
+3. **Import Database**:
+   - Nyalakan service **Apache** dan **MySQL** di Laragon / XAMPP.
+   - Buka **phpMyAdmin** (`http://localhost/phpmyadmin`) atau MySQL client.
+   - Import file `database/db_lab_gear.sql` (file ini akan otomatis membuat database `db_lab_gear`, 4 tabel berelasi, beserta data awalnya).
+4. **Konfigurasi Koneksi (Opsional)**:
+   - Konfigurasi default di `config/database.php` adalah host `127.0.0.1`, database `db_lab_gear`, user `root`, dan password kosong `""`. Sesuaikan jika pengaturan MySQL lokal kamu berbeda.
+5. **Akses di Browser**:
+   - Buka URL: `http://localhost/TP7DPBO2526C1/`
+   - Atau jalankan via PHP built-in server dari terminal di dalam folder `TP7DPBO2526C1`:
+     ```bash
+     php -S localhost:8000
+     ```
+     Lalu buka `http://localhost:8000` di browser.
+
+---
+
 ## Skenario Pengujian (Test Case)
 
 Berikut adalah daftar skenario pengujian (*test case*) CRUD, validasi input, proteksi *foreign key*, serta sinkronisasi stok transaksional pada seluruh tabel:
@@ -253,7 +345,7 @@ Berikut adalah daftar skenario pengujian (*test case*) CRUD, validasi input, pro
 | Kode | Skenario Uji | Langkah & Data Input | Hasil yang Diharapkan (Expected Result) |
 | :--- | :--- | :--- | :--- |
 | **TC-CAT-01** | **Create** (Tambah Kategori Baru) | Isi form:<br>- Kode Kategori: `CAT-AUD`<br>- Nama Kategori: `Perangkat Audio & Podcast`<br>- Lokasi Ruang Lab: `Lab Multimedia Lantai 1`<br>- Deskripsi: `Mikrofon kondensor, audio interface, dan headphone studio.`<br>Klik **Tambah Kategori**. | Muncul pesan sukses *"Kategori alat laboratorium berhasil ditambahkan."* Data `CAT-AUD` tampil di tabel dengan jumlah jenis alat `0 alat`. |
-| **TC-CAT-02** | **Validasi Duplikat Kode** | Tambah kategori baru dengan Kode Kategori yang sudah ada (`CAT-AUD`). | Ditolak dengan pesan error ramah: *"Data dengan kode, nomor identitas, atau email tersebut sudah terdaftar (duplikat)."* |
+| **TC-CAT-02** | **Validasi Duplikat Kode** | Isi form lengkap dengan Kode Kategori yang sudah ada:<br>- Kode Kategori: `CAT-AUD` *(duplikat)*<br>- Nama Kategori: `Perangkat Kamera & Lighting`<br>- Lokasi Ruang Lab: `Lab Fotografi Lantai 1`<br>- Deskripsi: `Kamera mirrorless, lensa fix, dan softbox lighting.`<br>Klik **Tambah Kategori**. | Ditolak oleh constraint `UNIQUE` dengan pesan error ramah: *"Data dengan kode, nomor identitas, atau email tersebut sudah terdaftar (duplikat)."* |
 | **TC-CAT-03** | **Update** (Edit Kategori) | Klik **Edit** pada `CAT-AUD`, ubah Lokasi Ruang Lab menjadi `Studio Rekaman Lantai 2`, lalu klik **Simpan Perubahan**. | Muncul pesan sukses *"Data kategori alat berhasil diperbarui."* Kolom Ruang Lab pada tabel berubah menjadi `Studio Rekaman Lantai 2`. |
 | **TC-CAT-04** | **Delete (Proteksi Foreign Key)** | Klik **Hapus** pada kategori `CAT-IOT` (yang masih direferensikan oleh data alat di tabel `equipments`). | Penghapusan ditolak oleh constraint `ON DELETE RESTRICT` dengan pesan ramah: *"Data ini tidak dapat dihapus karena masih digunakan sebagai referensi pada tabel lain."* |
 | **TC-CAT-05** | **Delete (Berhasil)** | Klik **Hapus** pada kategori `CAT-AUD` (yang belum memiliki alat), lalu konfirmasi OK. | Muncul pesan sukses *"Kategori alat berhasil dihapus."* Baris `CAT-AUD` terhapus dari tabel. |
